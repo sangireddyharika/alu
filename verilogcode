@@ -1,0 +1,260 @@
+module ALU_top_module (
+    input [15:0] DIN,
+    input clk, rstn, run,
+    output reg done,
+    output reg [15:0] G
+);
+
+    reg [15:0] IR, R0, R1; 
+    reg [7:0] A;
+    reg [1:0] ns, cs;
+    reg IRin, G_in;
+    reg and_en, or_en, nand_en, nor_en, left_shift_en, right_shift_en, incrementer_enable, decrementer_enable;
+
+    wire [15:0] G0, G1, G2, G3, G4, G5, G6, G7;
+    wire [3:0] IIII;
+    wire [7:0] Dy;
+    wire [2:0] shift;
+
+    // Parameters
+    parameter T0 = 2'b00, T1 = 2'b01, T2 = 2'b11;
+    parameter I0 = 4'd0, I1 = 4'd1, I2 = 4'd2, I3 = 4'd3, I4 = 4'd4, I5 = 4'd5, I6 = 4'd6, I7 = 4'd7, I8 = 4'd8;
+
+    // Assignments
+    assign IIII = IR[15:12];
+    assign Dy = IR[7:0];
+    assign shift = IR[11:9];
+
+    // State and control registers initialization
+    always @(posedge clk or negedge rstn) begin
+        if (!rstn) begin
+            ns <= T0;
+            cs <= T0;
+            IR <= 16'd0;
+            R0 <= 16'd0;
+            R1 <= 16'd0;
+            IRin <= 0;
+            G_in <= 0;
+            and_en <= 0;
+            or_en <= 0;
+            nand_en <= 0;
+            nor_en <= 0;
+            left_shift_en <= 0;
+            right_shift_en <= 0;
+            incrementer_enable <= 0;
+            decrementer_enable <= 0;
+            done <= 0;
+        end
+        else begin
+            cs <= ns;
+        end
+    end
+
+    // Next state and control logic
+    always @(*) begin
+        // Default assignments
+        and_en = 0;
+        or_en = 0;
+        nand_en = 0;
+        nor_en = 0;
+        left_shift_en = 0;
+        right_shift_en = 0;
+        incrementer_enable = 0;
+        decrementer_enable = 0;
+        G_in = 0;
+        done = 0;
+        
+        case (cs)
+            T0: begin
+                if (!run) begin
+                    ns = T0;
+                end
+                else begin
+                    IRin = 1;
+                    ns = T1;
+                end
+            end
+
+            T1: begin
+                if (IIII == I0) begin
+                    case (IR[8]) // Rx
+                        0: R0 = Dy;
+                        1: R1 = Dy;
+                        default: ;
+                    endcase
+                    ns = T0;
+                    done = 1;
+                end
+                else begin
+                    case (IR[8]) // Rx
+                        0: A = R0[7:0];
+                        1: A = R1[7:0];
+                        default: ;
+                    endcase
+                    ns = T2;
+                end
+            end
+
+            T2: begin
+                case (IIII)
+                    I1: and_en = 1;
+                    I2: or_en = 1;
+                    I3: nand_en = 1;
+                    I4: nor_en = 1;
+                    I5: left_shift_en = 1;
+                    I6: right_shift_en = 1;
+                    I7: incrementer_enable = 1;
+                    I8: decrementer_enable = 1;
+                    default: ;
+                endcase
+                G_in = 1;
+                ns = T0;
+            end
+        endcase
+    end
+
+    // Output assignment
+    always @(posedge clk) begin
+        if (IRin) begin
+            IR <= DIN;
+        end
+        if (G_in) begin
+            case (1'b1) 
+                and_en: G = G0;
+                or_en: G = G1;
+                nand_en: G = G2;
+                nor_en: G = G3;
+                left_shift_en: G = G4;
+                right_shift_en: G = G5;
+                incrementer_enable: G = G6;
+                decrementer_enable: G = G7;
+                default: G = 16'd0; // Default case to avoid unknown value
+            endcase
+        end
+    end
+
+    // ALU modules
+    alu_andgate a1 (.a(A), .b(Dy), .enable(and_en), .y(G0));
+    alu_orgate a2 (.a(A), .b(Dy), .enable(or_en), .y(G1));
+    nand_alu a3 (.a(A), .b(Dy), .enable(nand_en), .y(G2));
+    alu_norgate a4 (.a(A), .b(Dy), .enable(nor_en), .y(G3));
+    alu_leftshift a5 (.b(A),.a(Dy), .shift_amount(shift), .enable(left_shift_en), .out(G4));
+    alu_right a6 (.b(A),.a(Dy), .shift_amount(shift), .enable(right_shift_en), .out(G5));
+    increment_alu a7 (.a(A), .enable(incrementer_enable), .y(G6));
+    decrement_alu a8 (.a(A), .enable(decrementer_enable), .y(G7));
+
+endmodule
+module alu_andgate(
+    input [7:0] a, b,
+    input enable,
+    output reg [15:0] y
+);
+    always @(*) begin
+        if (enable) begin
+            y = a & b;
+        end
+    end
+endmodule
+
+module alu_orgate(
+    input [7:0] a, b,
+    input enable,
+    output reg [15:0] y
+);
+    always @(*) begin
+        if (enable) begin
+            y = a | b;
+        end
+    end
+endmodule
+module nand_alu(
+    input [7:0] a, b,
+    input enable,
+    output reg [15:0] y
+);
+    always @(*) begin
+        if (enable) begin
+            y = ~(a & b);
+        end
+    end
+endmodule
+
+module alu_norgate(
+    input [7:0] a, b,
+    input enable,
+    output reg [15:0] y
+);
+    always @(*) begin
+        if (enable) begin
+            y = ~(a | b);
+        end
+    end
+endmodule
+
+module alu_leftshift(a,b,enable,out,shift_amount);
+input [7:0]a,b;
+output [15:0]out;
+input enable;
+input [2:0]shift_amount;
+reg [15:0]out;
+reg [7:0]int_out1, int_out2;
+integer i = 0;
+always @(*)begin
+    if(enable)begin
+        for(i=0;i<shift_amount+1;i=i+1) begin
+            int_out1 = a << i;
+            int_out2 = b << i;
+        end
+        out = {int_out1, int_out2};
+    end
+    else begin
+       out = 16'b0;
+    end
+end
+endmodule
+
+module alu_right(a,b,enable,out,shift_amount);
+input [7:0]a,b;
+output [15:0]out;
+input enable;
+input [2:0]shift_amount;
+reg [15:0]out;
+reg [7:0]int_out1, int_out2;
+integer i = 0;
+always @(*)begin
+    if(enable)begin
+        for(i=0;i<shift_amount+1;i=i+1) begin
+            int_out1 = a << i;
+            int_out2 = b << i;
+        end
+        out = {int_out1, int_out2};
+    end
+    else begin
+       out = 16'b0;
+    end
+end
+endmodule
+
+module increment_alu(
+    input [7:0] a,
+    input enable,
+    output reg [15:0] y
+);
+    always @(*) begin
+        if (enable) begin
+            y = a + 1'b1;
+        end
+    end
+endmodule
+
+module decrement_alu(
+    input [7:0] a,
+    input enable,
+    output reg [15:0] y
+);
+    always @(*) begin
+        if (enable) begin
+            y = a - 1'b1;
+        end
+end
+endmodule
